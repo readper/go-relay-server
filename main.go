@@ -39,19 +39,22 @@ func main() {
 	defer listener.Close()
 	log.Printf("start listening %s", addr.String())
 
-	// reset count every second
-	go func() {
-		tick := time.Tick(time.Second)
-		// loop:
-		for {
-			select {
-			case <-tick:
-				mutex.Lock()
-				requestCount = 0
-				mutex.Unlock()
+	// ratelimiter work only if flag > 0
+	if *limitPerSecond > 0 {
+		// reset count every second
+		go func() {
+			tick := time.Tick(time.Second)
+			// loop:
+			for {
+				select {
+				case <-tick:
+					mutex.Lock()
+					requestCount = 0
+					mutex.Unlock()
+				}
 			}
-		}
-	}()
+		}()
+	}
 
 	for {
 		tcpConn, err := listener.AcceptTCP()
@@ -113,15 +116,16 @@ func handleConnection(conn *net.TCPConn) {
 
 // each line will be a input
 func handleInput(input string) {
-	// check limit
-	for {
-		if requestCount >= *limitPerSecond {
-			time.Sleep(delayDuration)
+	if *limitPerSecond > 0 {
+		// check limit
+		for {
+			if requestCount >= *limitPerSecond {
+				time.Sleep(delayDuration)
+			}
 		}
+		mutex.Lock()
+		requestCount++
+		mutex.Unlock()
 	}
-	mutex.Lock()
-	requestCount++
-	mutex.Unlock()
-
 	// do request
 }
