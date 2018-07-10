@@ -42,6 +42,7 @@ var (
 )
 
 func main() {
+	flag.Parse()
 	addr, err := net.ResolveTCPAddr(connType, fmt.Sprintf("%s:%d", *host, *port))
 	if err != nil {
 		log.Panicf("host %s and port %d parse failed, error: %s", *host, *port, err.Error())
@@ -53,12 +54,25 @@ func main() {
 	defer listener.Close()
 	log.Printf("start listening %s", addr.String())
 
+	// Stats report
+	go func() {
+		tickStat := time.Tick(5 * time.Second)
+		for {
+			select {
+			case <-tickStat:
+				log.Printf("Current Connection: %d", stats[statsCurrentConnection])
+				log.Printf("Total Connection: %d", stats[statsTotalConnection])
+				log.Printf("Current Request: %d", stats[statsCurrentRequest])
+				log.Printf("Total Request: %d", stats[statsTotalRequest])
+			}
+		}
+	}()
+
 	// ratelimiter work only if flag > 0
 	if *limitPerSecond > 0 {
 		// reset count every second
 		go func() {
 			tick := time.Tick(time.Second)
-			// loop:
 			for {
 				select {
 				case <-tick:
@@ -86,8 +100,10 @@ func main() {
 
 func handleConnection(ctx context.Context, conn *net.TCPConn) {
 	remoteAddr := conn.RemoteAddr()
+	mutex.Lock()
 	stats[statsCurrentConnection]++
 	stats[statsTotalConnection]++
+	mutex.Unlock()
 	defer func() {
 		mutex.Lock()
 		stats[statsCurrentConnection]--
@@ -148,8 +164,13 @@ func handleInput(ctx context.Context, input string) ([]byte, error) {
 	if *limitPerSecond > 0 {
 		// check limit
 		for {
-			if stats[statsCurrentRequest] >= *limitPerSecond {
+			mutex.Lock()
+			currentRequest := stats[statsCurrentRequest]
+			mutex.Unlock()
+			if currentRequest >= *limitPerSecond {
 				time.Sleep(delayDuration)
+			} else {
+				break
 			}
 		}
 		mutex.Lock()
