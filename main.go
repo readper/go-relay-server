@@ -15,12 +15,19 @@ import (
 	"time"
 )
 
+type stat int
+
 const (
 	connType      = "tcp"
 	timeout       = 10 * time.Second
 	delayDuration = 100 * time.Microsecond
 	quitCmd       = "quit"
 	requestURL    = "https://readper.asuscomm.com:312/test"
+
+	statsCurrentRequest stat = iota + 1
+	statsTotalRequest
+	statsCurrentConnection
+	statsTotalConnection
 )
 
 var (
@@ -30,6 +37,8 @@ var (
 
 	mutex        = &sync.Mutex{}
 	requestCount = 0
+
+	stats = map[stat]int{statsCurrentConnection: 0, statsCurrentRequest: 0, statsTotalConnection: 0, statsTotalRequest: 0}
 )
 
 func main() {
@@ -54,7 +63,7 @@ func main() {
 				select {
 				case <-tick:
 					mutex.Lock()
-					requestCount = 0
+					stats[statsCurrentRequest] = 0
 					mutex.Unlock()
 				}
 			}
@@ -77,7 +86,15 @@ func main() {
 
 func handleConnection(ctx context.Context, conn *net.TCPConn) {
 	remoteAddr := conn.RemoteAddr()
-	defer log.Printf("connection close from %s", remoteAddr.String())
+	stats[statsCurrentConnection]++
+	stats[statsTotalConnection]++
+	defer func() {
+		mutex.Lock()
+		stats[statsCurrentConnection]--
+		mutex.Unlock()
+		log.Printf("connection close from %s", remoteAddr.String())
+	}()
+
 	log.Printf("new connect from %s", remoteAddr.String())
 	for {
 		// read data from client
@@ -128,15 +145,16 @@ func handleConnection(ctx context.Context, conn *net.TCPConn) {
 
 // each line will be a input
 func handleInput(ctx context.Context, input string) ([]byte, error) {
-	if *limitPergSecond > 0 {
+	if *limitPerSecond > 0 {
 		// check limit
 		for {
-			if requestCount >= *limitPerSecond {
+			if stats[statsCurrentRequest] >= *limitPerSecond {
 				time.Sleep(delayDuration)
 			}
 		}
 		mutex.Lock()
-		requestCount++
+		stats[statsCurrentRequest]++
+		stats[statsTotalRequest]++
 		mutex.Unlock()
 	}
 	// do request
