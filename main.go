@@ -1,11 +1,13 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"log"
+	"math/rand"
 	"net"
 	"net/http"
 	"strings"
@@ -61,6 +63,7 @@ func main() {
 
 	for {
 		tcpConn, err := listener.AcceptTCP()
+		ctx := context.WithValue(context.Background(), "requestID", randStr(32))
 		if err != nil {
 			log.Panicf("acceptTCP failed, error: %s", err.Error())
 		}
@@ -68,11 +71,11 @@ func main() {
 		if err != nil {
 			log.Panicf("set connection deadline failed, error: %s", err.Error())
 		}
-		go handleConnection(tcpConn)
+		go handleConnection(ctx, tcpConn)
 	}
 }
 
-func handleConnection(conn *net.TCPConn) {
+func handleConnection(ctx context.Context, conn *net.TCPConn) {
 	remoteAddr := conn.RemoteAddr()
 	defer log.Printf("connection close from %s", remoteAddr.String())
 	log.Printf("new connect from %s", remoteAddr.String())
@@ -111,7 +114,7 @@ func handleConnection(conn *net.TCPConn) {
 				conn.Close()
 				return
 			}
-			returnBody, err := handleInput(input)
+			returnBody, err := handleInput(ctx, input)
 			if err != nil {
 				log.Printf("api request fail, input: %s, error: %s", input, err.Error())
 				continue
@@ -124,8 +127,8 @@ func handleConnection(conn *net.TCPConn) {
 }
 
 // each line will be a input
-func handleInput(input string) ([]byte, error) {
-	if *limitPerSecond > 0 {
+func handleInput(ctx context.Context, input string) ([]byte, error) {
+	if *limitPergSecond > 0 {
 		// check limit
 		for {
 			if requestCount >= *limitPerSecond {
@@ -148,4 +151,13 @@ func handleInput(input string) ([]byte, error) {
 		return nil, err
 	}
 	return body, nil
+}
+
+func randStr(n int) string {
+	charSet := "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefijklmnopqrstuvwxyz1234567890"
+	output := ""
+	for i := 0; i < n; i++ {
+		output += string(charSet[rand.Int63n(int64(len(charSet)))])
+	}
+	return output
 }
