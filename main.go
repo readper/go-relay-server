@@ -4,8 +4,10 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
 	"net"
+	"net/http"
 	"strings"
 	"sync"
 	"time"
@@ -16,6 +18,7 @@ const (
 	timeout       = 10 * time.Second
 	delayDuration = 100 * time.Microsecond
 	quitCmd       = "quit"
+	requestURL    = "https://readper.asuscomm.com:312/test"
 )
 
 var (
@@ -87,6 +90,7 @@ func handleConnection(conn *net.TCPConn) {
 			return
 		}
 		msg := string(buffer)
+		msg = msg[:length]
 		log.Printf("Got Message: %s size: %d from %s ", msg, length, remoteAddr.String())
 
 		// reset timeout
@@ -101,21 +105,26 @@ func handleConnection(conn *net.TCPConn) {
 
 		// handle each line
 		inputs := strings.Split(msg, "\n")
+
 		for _, input := range inputs {
-			if input == "" {
-				continue
-			}
 			if input == quitCmd {
 				conn.Close()
 				return
 			}
-			handleInput(input)
+			returnBody, err := handleInput(input)
+			if err != nil {
+				log.Printf("api request fail, input: %s, error: %s", input, err.Error())
+				continue
+			}
+			conn.Write([]byte(fmt.Sprintf("\ninput: %s\nreturn: \n", input)))
+			conn.Write(returnBody)
+			conn.Write([]byte("\n"))
 		}
 	}
 }
 
 // each line will be a input
-func handleInput(input string) {
+func handleInput(input string) ([]byte, error) {
 	if *limitPerSecond > 0 {
 		// check limit
 		for {
@@ -128,4 +137,15 @@ func handleInput(input string) {
 		mutex.Unlock()
 	}
 	// do request
+	httpResp, err := http.Post(requestURL, "application/x-www-form-urlencoded", strings.NewReader(fmt.Sprintf("input=%s", input)))
+	if err != nil {
+		return nil, err
+	}
+	defer httpResp.Body.Close()
+
+	body, err := ioutil.ReadAll(httpResp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return body, nil
 }
