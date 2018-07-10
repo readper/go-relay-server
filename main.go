@@ -92,31 +92,31 @@ func handleConnection(ctx context.Context, conn *net.TCPConn) {
 		mutex.Lock()
 		stats[statsCurrentConnection]--
 		mutex.Unlock()
-		log.Printf("connection close from %s", remoteAddr.String())
+		log.Printf("connection close from %s, requestID: %s", remoteAddr.String(), ctx.Value("requestID"))
 	}()
 
-	log.Printf("new connect from %s", remoteAddr.String())
+	log.Printf("new connect from %s, requestID: %s", remoteAddr.String(), ctx.Value("requestID"))
 	for {
 		// read data from client
 		buffer := make([]byte, 1024)
 		length, err := conn.Read(buffer)
 		if err != nil {
 			if err == io.EOF {
-				log.Println("Read encounter EOF, normal end")
+				log.Println("Read encounter EOF, normal end, requestID: %s", ctx.Value("requestID"))
 			} else {
-				log.Printf("read fail, error: %s", err.Error())
+				log.Printf("read fail, error: %s, requestID: %s", err.Error(), ctx.Value("requestID"))
 			}
 			conn.Close()
 			return
 		}
 		msg := string(buffer)
 		msg = msg[:length]
-		log.Printf("Got Message: %s size: %d from %s ", msg, length, remoteAddr.String())
+		log.Printf("Got Message: %s size: %d from %s, requestID: %s", msg, length, remoteAddr.String(), ctx.Value("requestID"))
 
 		// reset timeout
 		err = conn.SetDeadline(time.Now().Add(timeout))
 		if err != nil {
-			log.Panicf("reset connection deadline failed, error: %s", err.Error())
+			log.Panicf("reset connection deadline failed, error: %s, requestID: %s", err.Error(), ctx.Value("requestID"))
 		}
 
 		// handle different end of line
@@ -133,7 +133,7 @@ func handleConnection(ctx context.Context, conn *net.TCPConn) {
 			}
 			returnBody, err := handleInput(ctx, input)
 			if err != nil {
-				log.Printf("api request fail, input: %s, error: %s", input, err.Error())
+				log.Printf("api request fail, input: %s, error: %s, requestID: %s", input, err.Error(), ctx.Value("requestID"))
 				continue
 			}
 			conn.Write([]byte(fmt.Sprintf("\ninput: %s\nreturn: \n", input)))
